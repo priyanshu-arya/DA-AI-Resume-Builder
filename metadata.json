@@ -1,0 +1,5 @@
+{
+  "name": "ATS Resume Builder AI",
+  "description": "An intelligent resume builder that uses Gemini AI to tailor your resume for Job Descriptions and ATS optimization.",
+  "requestFramePermissions": []
+}
