@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithPopup, Auth, AuthProvider } from 'firebase/auth';
 import { auth, googleProvider, linkedinProvider } from '../firebaseConfig';
-import { Sparkles, FileText, CheckCircle, AlertTriangle, XCircle, User, Linkedin } from 'lucide-react';
+import { Sparkles, FileText, CheckCircle, AlertTriangle, XCircle, User, Linkedin, ExternalLink } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface LoginProps {
@@ -10,10 +10,31 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState<string | null>(null);
+  const [domainError, setDomainError] = useState<string | null>(null);
   
   // Check if config is likely default/invalid
   // We cast auth to any to safely check internal options without TS errors if auth is null
   const isConfigValid = auth && (auth as any).app?.options?.apiKey && (auth as any).app.options.apiKey !== "YOUR_API_KEY_HERE";
+
+  const handleAuthError = (err: any) => {
+    console.error("Login failed", err);
+    let errorMessage = err.message;
+    setDomainError(null);
+
+    if (err.code === 'auth/unauthorized-domain') {
+      const hostname = window.location.hostname;
+      setDomainError(hostname);
+      errorMessage = `Domain not authorized.`;
+    } else if (err.code === 'auth/operation-not-allowed') {
+      errorMessage = "Sign-In provider is disabled. Enable it in Firebase Console -> Authentication -> Sign-in method.";
+    } else if (err.code === 'auth/popup-closed-by-user') {
+      errorMessage = "Sign-in cancelled.";
+    } else if (err.code === 'auth/account-exists-with-different-credential') {
+      errorMessage = "Account exists with a different credential. Please sign in with the method you used originally.";
+    }
+    
+    setError(errorMessage);
+  };
 
   const handleGoogleLogin = async () => {
     setError(null);
@@ -30,18 +51,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         photoURL: result.user.photoURL
       });
     } catch (err: any) {
-      console.error("Login failed", err);
-      // Format the error message to be helpful
-      let errorMessage = err.message;
-      if (err.code === 'auth/unauthorized-domain') {
-        const hostname = window.location.hostname;
-        errorMessage = `Domain not authorized: '${hostname}'. Go to Firebase Console -> Authentication -> Settings -> Authorized Domains and add '${hostname}'. Also ensure you are editing the correct project 'da-ai-resume-builder'.`;
-      } else if (err.code === 'auth/operation-not-allowed') {
-        errorMessage = "Google Sign-In is disabled. Go to Firebase Console -> Authentication -> Sign-in method and enable 'Google'.";
-      } else if (err.code === 'auth/popup-closed-by-user') {
-        errorMessage = "Sign-in cancelled.";
-      }
-      setError(errorMessage);
+      handleAuthError(err);
     }
   };
 
@@ -52,7 +62,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       return;
     }
     try {
-      // Cast to strict types for TypeScript compliance
       const result = await signInWithPopup(auth as Auth, linkedinProvider as AuthProvider);
       onLoginSuccess({
         uid: result.user.uid,
@@ -61,14 +70,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         photoURL: result.user.photoURL
       });
     } catch (err: any) {
-      console.error("LinkedIn Login failed", err);
-      let errorMessage = err.message;
-      if (err.code === 'auth/operation-not-allowed') {
-        errorMessage = "LinkedIn Sign-In is disabled. Enable 'LinkedIn' in Firebase Console -> Authentication -> Sign-in method.";
-      } else if (err.code === 'auth/popup-closed-by-user') {
-        errorMessage = "Sign-in cancelled.";
-      }
-      setError(errorMessage);
+      handleAuthError(err);
     }
   };
 
@@ -114,8 +116,26 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
            </div>
         )}
 
-        {/* Error Display */}
-        {error && (
+        {/* Unauthorized Domain Specific Help */}
+        {domainError && (
+           <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-6 text-left animate-in fade-in slide-in-from-top-2">
+             <div className="flex items-center gap-2 text-yellow-400 font-bold mb-2">
+                <AlertTriangle size={18} /> Domain Not Authorized
+             </div>
+             <p className="text-xs text-yellow-100 mb-3 leading-relaxed">
+                The domain <strong>{domainError}</strong> is not on the authorized list for this Firebase project.
+             </p>
+             <div className="bg-black/20 p-2 rounded mb-3 text-xs text-slate-300 font-mono">
+                Firebase Console &rarr; Auth &rarr; Settings &rarr; Authorized Domains
+             </div>
+             <p className="text-xs text-yellow-200/70 italic">
+                Note: If you are using the default demo config, you must create your own Firebase project and update <code>firebaseConfig.ts</code>.
+             </p>
+           </div>
+        )}
+
+        {/* General Error Display */}
+        {error && !domainError && (
            <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4 mb-6 text-left animate-in fade-in slide-in-from-top-2">
              <div className="flex items-center gap-2 text-red-400 font-bold mb-1">
                 <XCircle size={18} /> Login Error

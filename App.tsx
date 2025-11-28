@@ -58,10 +58,13 @@ const App: React.FC = () => {
     const randomTip = RESUME_TIPS[Math.floor(Math.random() * RESUME_TIPS.length)];
     setDailyTip(randomTip);
 
+    // Guard: If auth failed to initialize (e.g. bad config), stop loading
     if (!auth) {
+      console.warn("Firebase Auth not initialized");
       setIsLoadingAuth(false);
       return;
     }
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser({

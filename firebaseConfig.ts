@@ -1,11 +1,9 @@
-import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, OAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp, FirebaseApp } from "firebase/app";
+import { getAuth, GoogleAuthProvider, OAuthProvider, Auth, AuthProvider } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
 
 // TODO: User must replace these with their own Firebase project configuration
 // Go to Firebase Console -> Project Settings -> General -> Your apps -> SDK setup and config
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyAjS3R-EVHKZ5tclrxDsmcLkn6YKRR0mzk",
   authDomain: "da-ai-resume-builder.firebaseapp.com",
@@ -16,13 +14,12 @@ const firebaseConfig = {
   measurementId: "G-WEBWRVE858"
 };
 
-// Initialize Firebase
-// We wrap this in a try-catch or check for existing apps to avoid double-init in dev mode if HMR triggers
-let app;
-let auth;
-let db;
-let googleProvider;
-let linkedinProvider;
+// Initialize Firebase variables with explicit types
+let app: FirebaseApp | undefined;
+let auth: Auth | undefined;
+let db: Firestore | undefined;
+let googleProvider: AuthProvider | undefined;
+let linkedinProvider: AuthProvider | undefined;
 
 try {
     app = initializeApp(firebaseConfig);
