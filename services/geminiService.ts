@@ -129,6 +129,22 @@ const analysisSchema: Schema = {
   },
 };
 
+// Helper function to robustly clean and extract JSON from model response
+function cleanJsonString(text: string): string {
+  // 1. Remove markdown code blocks
+  let clean = text.replace(/```json/g, '').replace(/```/g, '');
+  
+  // 2. Find the first '{' and last '}' to handle potential preamble/postscript text
+  const firstOpen = clean.indexOf('{');
+  const lastClose = clean.lastIndexOf('}');
+  
+  if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+    clean = clean.substring(firstOpen, lastClose + 1);
+  }
+  
+  return clean.trim();
+}
+
 export const optimizeResumeWithJD = async (
   currentResume: ResumeData,
   jobDescription: string
@@ -276,24 +292,28 @@ export const getResumeImprovements = async (
   return { score: 0, summary: "Failed to analyze.", improvements: [] };
 };
 
-export const scanResumeText = async (
-  resumeText: string
+export const scanResumeContent = async (
+  input: { type: 'text' | 'pdf', value: string }
 ): Promise<ReviewResult> => {
-  const prompt = `
-    Act as a strict Resume Auditor.
-    Review the provided raw resume text.
-    
-    1. Calculate a Score (0-100).
-    2. Provide a 1-sentence summary of the resume's strength.
-    3. List 3-5 critical improvements. Since this is raw text, 'section' might be inferred or generic.
-
-    Resume Text:
-    ${resumeText.slice(0, 10000)}
-  `;
+  let contents = [];
+  
+  if (input.type === 'pdf') {
+    contents = [
+      {
+        inlineData: {
+          mimeType: "application/pdf",
+          data: input.value
+        }
+      },
+      { text: "Act as a strict Resume Auditor. Review the provided PDF resume. 1. Calculate a Score (0-100). 2. Provide a 1-sentence summary. 3. List 3-5 critical improvements." }
+    ];
+  } else {
+    contents = [{ text: `Act as a strict Resume Auditor. Review the provided raw resume text. 1. Calculate a Score (0-100). 2. Provide a 1-sentence summary. 3. List 3-5 critical improvements.\n\nText:\n${input.value.slice(0, 20000)}` }];
+  }
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: prompt,
+    contents: contents,
     config: {
       responseMimeType: "application/json",
       responseSchema: reviewSchema,
@@ -306,51 +326,112 @@ export const scanResumeText = async (
   return { score: 0, summary: "Failed to scan.", improvements: [] };
 };
 
-export const parseResumeContent = async (
-  text: string
+export const extractDataFromSource = async (
+  source: { type: 'text' | 'pdf' | 'url', value: string }
 ): Promise<ResumeData> => {
-  const prompt = `
+  let contents = [];
+  let tools = [];
+  let config: any = {
+    temperature: 0.1,
+  };
+
+  const basePrompt = `
     You are a Data Extractor.
-    Extract resume data from the following unstructured text (which might be from a LinkedIn PDF export or a raw resume paste).
+    Extract resume data from the input.
     Map it to the JSON schema provided.
-    
     Rules:
     - Infer missing fields logically.
     - If date is just a year, assume Jan 1st.
     - Be precise with Company Names and Job Titles.
-    
-    Text:
-    ${text.slice(0, 25000)}
   `;
+
+  if (source.type === 'pdf') {
+    contents = [
+      {
+        inlineData: {
+          mimeType: "application/pdf",
+          data: source.value
+        }
+      },
+      { text: basePrompt }
+    ];
+    config.responseMimeType = "application/json";
+    config.responseSchema = resumeSchema;
+  } else if (source.type === 'url') {
+    // LinkedIn Extraction Strategy
+    const urlPrompt = `
+      I need to construct a resume from the public LinkedIn profile at this URL: ${source.value}.
+      
+      Perform a Google Search to find the LinkedIn profile details for this person.
+      Look for:
+      - Full Name and Headline (use as Summary if needed)
+      - Experience (Job titles, Companies, Dates, Descriptions)
+      - Education (School, Degree, Dates)
+      - Skills
+      - Projects or Certifications if available.
+      
+      Consolidate the search results into a valid JSON object matching the ResumeData schema.
+      Estimate start/end years if specific months are not found.
+      Do not include markdown formatting in the response, just the JSON.
+    `;
+    
+    contents = [{ text: urlPrompt }];
+    tools = [{ googleSearch: {} }];
+    config.tools = tools;
+    // CRITICAL: responseMimeType cannot be used with googleSearch
+    delete config.responseMimeType;
+    delete config.responseSchema;
+  } else {
+    contents = [{ text: `${basePrompt}\n\nText:\n${source.value.slice(0, 30000)}` }];
+    config.responseMimeType = "application/json";
+    config.responseSchema = resumeSchema;
+  }
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: resumeSchema,
-      temperature: 0.1,
-    }
+    contents: contents,
+    config: config
   });
 
   if (response.text) {
-    const data = JSON.parse(response.text) as ResumeData;
-    // Ensure arrays exist
-    data.skills = data.skills || [];
-    data.experience = data.experience || [];
-    data.education = data.education || [];
-    data.projects = data.projects || [];
-    data.awards = data.awards || [];
-    data.certificates = data.certificates || [];
+    // Use robust cleaner
+    const jsonStr = cleanJsonString(response.text);
     
-    // Add IDs if missing
-    data.experience.forEach(e => e.id = e.id || Math.random().toString(36).substr(2, 9));
-    data.education.forEach(e => e.id = e.id || Math.random().toString(36).substr(2, 9));
-    data.projects.forEach(e => e.id = e.id || Math.random().toString(36).substr(2, 9));
-    data.awards.forEach(e => e.id = e.id || Math.random().toString(36).substr(2, 9));
-    data.certificates.forEach(e => e.id = e.id || Math.random().toString(36).substr(2, 9));
-    
-    return data;
+    try {
+      const data = JSON.parse(jsonStr) as ResumeData;
+      // Ensure arrays exist
+      data.skills = data.skills || [];
+      data.experience = data.experience || [];
+      data.education = data.education || [];
+      data.projects = data.projects || [];
+      data.awards = data.awards || [];
+      data.certificates = data.certificates || [];
+      
+      // Ensure Personal Info exists
+      data.personalInfo = {
+        fullName: "",
+        email: "",
+        phone: "",
+        location: "",
+        linkedin: "",
+        website: "",
+        summary: "",
+        ...(data.personalInfo || {})
+      };
+      
+      // Add IDs if missing
+      const addId = (item: any) => item.id = item.id || Math.random().toString(36).substr(2, 9);
+      data.experience.forEach(addId);
+      data.education.forEach(addId);
+      data.projects.forEach(addId);
+      data.awards.forEach(addId);
+      data.certificates.forEach(addId);
+      
+      return data;
+    } catch (e) {
+      console.error("Failed to parse JSON response:", jsonStr);
+      throw new Error("Failed to parse resume content from source. The AI response was not valid JSON.");
+    }
   }
   throw new Error("Failed to parse resume content");
 };

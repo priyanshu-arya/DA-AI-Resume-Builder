@@ -74,3 +74,16 @@ export const INITIAL_RESUME_STATE: ResumeData = {
     }
   ]
 };
+
+export const RESUME_TIPS = [
+  "Quantify your impact using numbers (e.g., 'Increased sales by 20%' or 'Reduced load time by 3s'). Data speaks louder than words.",
+  "Use active action verbs like 'Spearheaded', 'Engineered', 'Orchestrated' instead of passive phrases like 'Responsible for'.",
+  "Tailor your resume for every job application using specific keywords found in the Job Description (JD).",
+  "Ensure your contact information is up-to-date and professional. Avoid unprofessional email addresses.",
+  "Limit your resume to 1 page if you have less than 10 years of experience. Recruiters scan resumes in 6 seconds.",
+  "Focus on achievements, not just duties. What did you *accomplish* in that role?",
+  "Save your resume as a PDF to ensure formatting stays consistent across all devices and ATS software.",
+  "Remove references available upon request. Save that space for more skills or experience.",
+  "Include a link to your LinkedIn profile or Portfolio, but make sure they are up-to-date.",
+  "Avoid using personal pronouns like 'I', 'Me', or 'My' in your bullet points."
+];

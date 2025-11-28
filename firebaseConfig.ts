@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, OAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // TODO: User must replace these with their own Firebase project configuration
@@ -22,15 +22,17 @@ let app;
 let auth;
 let db;
 let googleProvider;
+let linkedinProvider;
 
 try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
     googleProvider = new GoogleAuthProvider();
+    linkedinProvider = new OAuthProvider('linkedin.com');
 } catch (error) {
     console.warn("Firebase initialization failed. Ensure you have set valid config in firebaseConfig.ts");
     console.error(error);
 }
 
-export { auth, db, googleProvider };
+export { auth, db, googleProvider, linkedinProvider };

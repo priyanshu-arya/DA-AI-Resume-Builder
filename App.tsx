@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { INITIAL_RESUME_STATE } from './constants';
-import { ResumeData, TemplateType, KeywordAnalysis, ReviewResult, ResumeImprovement, UserProfile, ResumeProject } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { INITIAL_RESUME_STATE, RESUME_TIPS } from './constants';
+import { ResumeData, TemplateType, KeywordAnalysis, ReviewResult, ResumeImprovement, UserProfile, ResumeProject, ResumeVersion } from './types';
 import Editor from './components/Editor';
 import Preview from './components/Preview';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
-import { optimizeResumeWithJD, generateProfessionalSummary, analyzeResumeKeywords, refineSectionDescription, getResumeImprovements, parseResumeContent } from './services/geminiService';
-import { FileText, Printer, Download, LayoutTemplate, X, Check, ChevronRight, Eye, Edit3, ArrowLeft, Upload, Save } from 'lucide-react';
+import ImportModal from './components/ImportModal';
+import TemplateModal from './components/TemplateModal';
+import { optimizeResumeWithJD, generateProfessionalSummary, analyzeResumeKeywords, refineSectionDescription, getResumeImprovements, extractDataFromSource } from './services/geminiService';
+import { Printer, LayoutTemplate, Eye, Edit3, ArrowLeft, Save, PenLine, Cloud } from 'lucide-react';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where, setDoc, getDoc } from 'firebase/firestore';
@@ -32,17 +34,30 @@ const App: React.FC = () => {
   const [enhancingId, setEnhancingId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<KeywordAnalysis | null>(null);
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  
+  // Modal States
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  
   const [mobileView, setMobileView] = useState<'editor' | 'preview'>('editor');
   
   // New Features State
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [dailyTip, setDailyTip] = useState('');
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  
+  // Edit Title State
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [tempTitle, setTempTitle] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Auth Listener
   useEffect(() => {
+    // Set a random tip on load
+    const randomTip = RESUME_TIPS[Math.floor(Math.random() * RESUME_TIPS.length)];
+    setDailyTip(randomTip);
+
     if (!auth) {
       setIsLoadingAuth(false);
       return;
@@ -56,7 +71,7 @@ const App: React.FC = () => {
           photoURL: currentUser.photoURL
         });
         setView('dashboard');
-        await fetchProjects(currentUser.uid);
+        await fetchProjects(currentUser.uid, false);
       } else {
         setUser(null);
         setView('auth');
@@ -66,8 +81,41 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Database Operations
-  const fetchProjects = async (userId: string) => {
+  // Autosave Effect
+  useEffect(() => {
+    if (!currentProject) return;
+    
+    // Avoid saving if data hasn't changed from last saved state
+    if (JSON.stringify(resumeData) === JSON.stringify(currentProject.data)) return;
+
+    setIsAutoSaving(true);
+    const timer = setTimeout(async () => {
+        await handleSaveProject(false);
+        setIsAutoSaving(false);
+    }, 2000); // 2 seconds debounce
+
+    return () => clearTimeout(timer);
+  }, [resumeData]);
+
+  // Database Operations (Abstracted for Guest/Auth)
+  const fetchProjects = async (userId: string, isGuest: boolean = false) => {
+    if (isGuest) {
+      // Guest Mode: Load from LocalStorage
+      try {
+        const stored = localStorage.getItem('guest_projects');
+        if (stored) {
+          setProjects(JSON.parse(stored));
+        } else {
+          setProjects([]);
+        }
+      } catch (e) {
+        console.error("Error loading guest projects", e);
+        setProjects([]);
+      }
+      return;
+    }
+
+    // Auth Mode: Load from Firestore
     if (!db) return;
     try {
       const q = query(collection(db, "resumes"), where("userId", "==", userId));
@@ -84,7 +132,12 @@ const App: React.FC = () => {
     }
   };
 
-  const fetchMasterProfile = async (userId: string): Promise<ResumeData | null> => {
+  const fetchMasterProfile = async (userId: string, isGuest: boolean = false): Promise<ResumeData | null> => {
+    if (isGuest) {
+       const stored = localStorage.getItem('guest_master_profile');
+       return stored ? JSON.parse(stored) : null;
+    }
+
     if (!db) return null;
     try {
       const docRef = doc(db, "users", userId);
@@ -99,22 +152,35 @@ const App: React.FC = () => {
   };
 
   const handleCreateProject = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     
     // Try to load master profile first
-    const masterProfile = await fetchMasterProfile(user.uid);
+    const masterProfile = await fetchMasterProfile(user.uid, user.isGuest);
     const initialData = masterProfile || INITIAL_RESUME_STATE;
 
-    const newProject: Omit<ResumeProject, 'id'> = {
+    const newProjectData: Omit<ResumeProject, 'id'> = {
       userId: user.uid,
       title: "Untitled Resume",
       lastModified: Date.now(),
       data: initialData,
-      template: TemplateType.MODERN
+      template: TemplateType.MODERN,
+      versions: [],
+      scoreHistory: []
     };
+
+    if (user.isGuest) {
+      const createdProject = { id: 'guest-proj-' + Date.now(), ...newProjectData };
+      const updatedProjects = [createdProject, ...projects];
+      setProjects(updatedProjects);
+      localStorage.setItem('guest_projects', JSON.stringify(updatedProjects));
+      openProject(createdProject);
+      return;
+    }
+
+    if (!db) return;
     try {
-      const docRef = await addDoc(collection(db, "resumes"), newProject);
-      const createdProject = { id: docRef.id, ...newProject };
+      const docRef = await addDoc(collection(db, "resumes"), newProjectData);
+      const createdProject = { id: docRef.id, ...newProjectData };
       setProjects([createdProject, ...projects]);
       openProject(createdProject);
     } catch (e) {
@@ -122,33 +188,101 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveProject = async () => {
-    if (!currentProject || !db) return;
-    const updatedProject = {
+  const handleSaveProject = async (createVersion = false) => {
+    if (!currentProject || !user) return;
+    
+    let updatedVersions = currentProject.versions || [];
+    
+    // Always create version if requested (e.g., explicit Save button click)
+    if (createVersion) {
+      const newVersion: ResumeVersion = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        data: JSON.parse(JSON.stringify(resumeData)), // Deep copy
+        note: `Version ${updatedVersions.length + 1}`
+      };
+      // Keep last 15 versions to avoid bloat
+      updatedVersions = [newVersion, ...updatedVersions].slice(0, 15);
+    }
+
+    const updatedProject: ResumeProject = {
       ...currentProject,
       data: resumeData,
       template: template,
-      lastModified: Date.now()
+      lastModified: Date.now(),
+      versions: updatedVersions,
+      // scoreHistory is preserved or updated separately
+      scoreHistory: currentProject.scoreHistory || [] 
     };
+
+    // Optimistic UI update
+    const updatedProjectsList = projects.map(p => p.id === currentProject.id ? updatedProject : p);
+    setProjects(updatedProjectsList);
+    setCurrentProject(updatedProject);
+
+    if (user.isGuest) {
+      localStorage.setItem('guest_projects', JSON.stringify(updatedProjectsList));
+      return;
+    }
+
+    if (!db) return;
     try {
       await updateDoc(doc(db, "resumes", currentProject.id), {
         data: resumeData,
         template: template,
-        lastModified: Date.now()
+        lastModified: Date.now(),
+        versions: updatedVersions,
+        scoreHistory: updatedProject.scoreHistory
       });
-      setProjects(projects.map(p => p.id === currentProject.id ? updatedProject : p));
-      setCurrentProject(updatedProject); // Update current project state as well
     } catch (e) {
       console.error("Error saving project", e);
     }
   };
 
+  const handleRestoreVersion = (version: ResumeVersion) => {
+    if(confirm(`Are you sure you want to restore the version from ${new Date(version.timestamp).toLocaleString()}? Current unsaved changes will be lost.`)) {
+       setResumeData(version.data);
+    }
+  };
+  
+  const handleUpdateTitle = async () => {
+    if(!currentProject || !tempTitle.trim()) {
+      setIsEditingTitle(false);
+      return;
+    }
+    const updatedProject = { ...currentProject, title: tempTitle };
+    setCurrentProject(updatedProject);
+    setIsEditingTitle(false);
+    
+    // Trigger save
+    if (user?.isGuest) {
+        const updatedProjects = projects.map(p => p.id === updatedProject.id ? updatedProject : p);
+        setProjects(updatedProjects);
+        localStorage.setItem('guest_projects', JSON.stringify(updatedProjects));
+    } else if (db) {
+         try {
+           await updateDoc(doc(db, "resumes", updatedProject.id), { title: tempTitle });
+           setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
+         } catch(e) { console.error(e); }
+    }
+  };
+
   const handleDeleteProject = async (projectId: string) => {
-    if (!db) return;
+    if (!user) return;
     if (confirm("Are you sure you want to delete this resume?")) {
+      
+      const filteredProjects = projects.filter(p => p.id !== projectId);
+      
+      if (user.isGuest) {
+        setProjects(filteredProjects);
+        localStorage.setItem('guest_projects', JSON.stringify(filteredProjects));
+        return;
+      }
+
+      if (!db) return;
       try {
         await deleteDoc(doc(db, "resumes", projectId));
-        setProjects(projects.filter(p => p.id !== projectId));
+        setProjects(filteredProjects);
       } catch (e) {
         console.error("Error deleting project", e);
       }
@@ -156,8 +290,17 @@ const App: React.FC = () => {
   };
 
   const handleSaveToProfile = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     setIsSavingProfile(true);
+
+    if (user.isGuest) {
+       localStorage.setItem('guest_master_profile', JSON.stringify(resumeData));
+       alert("Profile saved to browser! New guest resumes will start with this data.");
+       setIsSavingProfile(false);
+       return;
+    }
+
+    if (!db) return;
     try {
       await setDoc(doc(db, "users", user.uid), {
         masterProfile: resumeData,
@@ -183,29 +326,27 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    if (user?.isGuest) {
+       setUser(null);
+       setView('auth');
+       return;
+    }
     if (!auth) return;
     await signOut(auth);
     setUser(null);
     setView('auth');
   };
 
+  const handleGuestLogin = (guestUser: UserProfile) => {
+    setUser(guestUser);
+    setView('dashboard');
+    fetchProjects(guestUser.uid, true);
+  };
+
   // --- Resume Logic ---
 
   const handlePrint = () => {
     window.print();
-  };
-
-  const handleDownloadJson = () => {
-    const dataStr = JSON.stringify(resumeData, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `resume-${resumeData.personalInfo.fullName.replace(/\s+/g, '_').toLowerCase() || 'draft'}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   const handleOptimize = async () => {
@@ -215,7 +356,7 @@ const App: React.FC = () => {
     try {
       const optimizedData = await optimizeResumeWithJD(resumeData, jobDescription);
       setResumeData(optimizedData);
-      handleSaveProject(); // Auto-save
+      handleSaveProject(true); // Auto-save with version on major change
       await handleAnalyzeJD(optimizedData);
     } catch (err) {
       console.error("Optimization failed", err);
@@ -245,6 +386,25 @@ const App: React.FC = () => {
     try {
       const result = await getResumeImprovements(resumeData, jobDescription);
       setReviewResult(result);
+
+      // Save Score History
+      if (currentProject) {
+        const newScoreRecord = { timestamp: Date.now(), score: result.score };
+        const updatedHistory = [...(currentProject.scoreHistory || []), newScoreRecord];
+        
+        const updatedProject = { ...currentProject, scoreHistory: updatedHistory };
+        setCurrentProject(updatedProject);
+        
+        // Persist
+        if (user?.isGuest) {
+           const updatedProjects = projects.map(p => p.id === updatedProject.id ? updatedProject : p);
+           setProjects(updatedProjects);
+           localStorage.setItem('guest_projects', JSON.stringify(updatedProjects));
+        } else if (db && user) {
+           await updateDoc(doc(db, "resumes", currentProject.id), { scoreHistory: updatedHistory });
+        }
+      }
+
     } catch (err) {
       console.error("Review failed", err);
       alert("Failed to generate improvements.");
@@ -279,7 +439,7 @@ const App: React.FC = () => {
         improvements: reviewResult.improvements.filter(i => i.id !== imp.id)
       });
     }
-    handleSaveProject(); // Auto-save on fix
+    // Auto-save handles the save
   };
 
   const handleGenerateSummary = async (jd?: string) => {
@@ -341,18 +501,17 @@ const App: React.FC = () => {
     }
   };
 
-  const handleImportData = async () => {
-    if (!importText.trim()) return;
+  const handleImportSubmit = async (source: { type: 'text' | 'pdf' | 'url', value: string }) => {
     setIsImporting(true);
     try {
-      const newData = await parseResumeContent(importText);
-      // Merge strategy: Overwrite
+      const newData = await extractDataFromSource(source);
       setResumeData(newData);
       setIsImportModalOpen(false);
-      setImportText('');
+      // Save version on import
+      handleSaveProject(true);
     } catch (e) {
       console.error(e);
-      alert("Failed to parse text.");
+      alert("Failed to parse data. The AI response might have been incomplete or invalid.");
     } finally {
       setIsImporting(false);
     }
@@ -361,11 +520,11 @@ const App: React.FC = () => {
   // --- Render ---
 
   if (isLoadingAuth) {
-    return <div className="h-screen flex items-center justify-center bg-slate-900 text-white">Loading...</div>;
+    return <div className="h-[100dvh] flex items-center justify-center bg-slate-900 text-white">Loading...</div>;
   }
 
   if (view === 'auth') {
-    return <Login onLoginSuccess={(u) => { setUser(u); setView('dashboard'); fetchProjects(u.uid); }} />;
+    return <Login onLoginSuccess={handleGuestLogin} />;
   }
 
   if (view === 'dashboard' && user) {
@@ -377,25 +536,57 @@ const App: React.FC = () => {
         onCreateProject={handleCreateProject}
         onOpenProject={openProject}
         onDeleteProject={handleDeleteProject}
+        dailyTip={dailyTip}
       />
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
+    <div className="flex flex-col h-[100dvh] bg-slate-900 text-slate-100 font-sans overflow-hidden">
       {/* Header */}
       <header className="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-3 md:px-6 flex-shrink-0 z-10 relative shadow-md no-print">
-        <div className="flex items-center gap-3">
-          <button onClick={() => { handleSaveProject(); setView('dashboard'); }} className="p-1.5 hover:bg-slate-700 rounded-full text-slate-400 hover:text-white transition-colors">
+        <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+          <button onClick={() => { handleSaveProject(); setView('dashboard'); }} className="p-1.5 hover:bg-slate-700 rounded-full text-slate-400 hover:text-white transition-colors shrink-0">
             <ArrowLeft size={20} />
           </button>
-          <div className="flex flex-col">
-            <h1 className="text-sm font-bold tracking-tight text-white">{currentProject?.title}</h1>
-            <span className="text-[10px] text-slate-400">Last saved: {new Date().toLocaleTimeString()}</span>
+          
+          {/* Editable Project Title */}
+          <div className="flex flex-col min-w-0">
+            {isEditingTitle ? (
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={tempTitle}
+                onChange={(e) => setTempTitle(e.target.value)}
+                onBlur={handleUpdateTitle}
+                onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle()}
+                className="bg-slate-700 text-white px-2 py-0.5 rounded text-sm font-bold border border-blue-500 focus:outline-none w-full max-w-[200px]"
+                autoFocus
+              />
+            ) : (
+              <div 
+                className="group flex items-center gap-2 cursor-pointer" 
+                onClick={() => { setTempTitle(currentProject?.title || ''); setIsEditingTitle(true); }}
+              >
+                <h1 className="text-sm font-bold tracking-tight text-white group-hover:text-blue-400 transition-colors truncate">
+                   {currentProject?.title}
+                </h1>
+                <PenLine size={12} className="text-slate-500 group-hover:text-blue-400 shrink-0" />
+              </div>
+            )}
+            <span className="text-[10px] text-slate-400 flex items-center gap-1 min-w-[100px]">
+               {isAutoSaving ? (
+                 <span className="text-blue-400 flex items-center gap-1 animate-pulse"><Cloud size={10} /> Saving...</span>
+               ) : (
+                 <span className="flex items-center gap-1 truncate">
+                   {user?.isGuest ? 'Guest' : 'Cloud'} <span className="hidden sm:inline">• Last saved: {currentProject?.lastModified ? new Date(currentProject.lastModified).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</span>
+                 </span>
+               )}
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
            {/* Mobile View Toggle */}
            <div className="flex md:hidden bg-slate-700 rounded-lg p-1 border border-slate-600 mr-1">
               <button 
@@ -425,19 +616,20 @@ const App: React.FC = () => {
            </button>
 
            <div className="h-6 w-px bg-slate-700 mx-1 hidden md:block"></div>
-
+           
+            {/* Explicit Save Button - Triggers Version Creation */}
            <button 
-             onClick={handleDownloadJson}
-             className="flex items-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 text-sm font-medium rounded-lg transition-colors"
-             title="Save JSON"
+             onClick={() => handleSaveProject(true)}
+             className="flex items-center gap-2 px-3 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+             title="Save Progress"
            >
-             <Download size={16} />
-             <span className="hidden xl:inline">Save JSON</span>
+             <Save size={16} />
+             <span className="hidden xl:inline">Save</span>
            </button>
 
            <button 
              onClick={handlePrint}
-             className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-white text-slate-900 text-sm font-medium rounded-lg transition-colors shadow-sm"
+             className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-white text-slate-900 text-sm font-medium rounded-lg transition-colors shadow-sm hidden sm:flex"
              title="Export PDF"
            >
              <Printer size={16} />
@@ -472,6 +664,9 @@ const App: React.FC = () => {
             onOpenImport={() => setIsImportModalOpen(true)}
             onSaveProfile={handleSaveToProfile}
             isSavingProfile={isSavingProfile}
+            versions={currentProject?.versions}
+            onRestoreVersion={handleRestoreVersion}
+            previousScore={currentProject?.scoreHistory && currentProject.scoreHistory.length > 1 ? currentProject.scoreHistory[currentProject.scoreHistory.length - 1].score : undefined}
           />
         </div>
 
@@ -488,232 +683,22 @@ const App: React.FC = () => {
       </main>
 
       {/* Template Selection Modal */}
-      {isTemplateModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsTemplateModalOpen(false)}>
-          <div 
-            className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col" 
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-white">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Choose a Template</h2>
-                <p className="text-sm text-slate-500">Select a layout that best fits your professional profile.</p>
-              </div>
-              <button 
-                onClick={() => setIsTemplateModalOpen(false)} 
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            
-            <div className="p-8 overflow-y-auto bg-slate-50 grid grid-cols-1 md:grid-cols-4 gap-8">
-              <TemplateOption 
-                id={TemplateType.MODERN}
-                name="Modern"
-                description="Professional two-column layout with a sidebar. Ideal for tech, creative, and digital roles."
-                isSelected={template === TemplateType.MODERN}
-                onSelect={() => { setTemplate(TemplateType.MODERN); setIsTemplateModalOpen(false); }}
-                preview={<ModernPreview />}
-              />
-              <TemplateOption 
-                id={TemplateType.CLASSIC}
-                name="Classic"
-                description="Traditional single-column layout with serif typography. Best for academic, legal, and corporate roles."
-                isSelected={template === TemplateType.CLASSIC}
-                onSelect={() => { setTemplate(TemplateType.CLASSIC); setIsTemplateModalOpen(false); }}
-                preview={<ClassicPreview />}
-              />
-              <TemplateOption 
-                id={TemplateType.MINIMAL}
-                name="Minimal"
-                description="Clean, distraction-free design focusing purely on content. Great for senior roles and executives."
-                isSelected={template === TemplateType.MINIMAL}
-                onSelect={() => { setTemplate(TemplateType.MINIMAL); setIsTemplateModalOpen(false); }}
-                preview={<MinimalPreview />}
-              />
-               <TemplateOption 
-                id={TemplateType.TECH}
-                name="Tech"
-                description="Dense, high-information density layout modeled after 'Deedy/Harshibar'. Perfect for Software Engineers."
-                isSelected={template === TemplateType.TECH}
-                onSelect={() => { setTemplate(TemplateType.TECH); setIsTemplateModalOpen(false); }}
-                preview={<TechPreview />}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      <TemplateModal 
+        isOpen={isTemplateModalOpen} 
+        onClose={() => setIsTemplateModalOpen(false)} 
+        currentTemplate={template} 
+        onSelect={(t) => { setTemplate(t); setIsTemplateModalOpen(false); }} 
+      />
 
       {/* Import Modal */}
-      {isImportModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsImportModalOpen(false)}>
-          <div 
-             className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-             onClick={e => e.stopPropagation()}
-          >
-             <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                   <Upload size={18} className="text-blue-600"/> Import Data
-                </h3>
-                <button onClick={() => setIsImportModalOpen(false)}><X size={20}/></button>
-             </div>
-             <div className="p-6 bg-slate-50 overflow-y-auto">
-                <p className="text-sm text-slate-600 mb-4">
-                  Paste your LinkedIn "About" section, Experience, or raw text from an old resume here. 
-                  Our AI will parse and format it into the builder automatically.
-                </p>
-                <textarea 
-                  className="w-full h-64 p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm mb-4"
-                  placeholder="Paste text here..."
-                  value={importText}
-                  onChange={e => setImportText(e.target.value)}
-                ></textarea>
-                <div className="flex justify-end gap-3">
-                   <button 
-                     onClick={() => setIsImportModalOpen(false)}
-                     className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-md font-medium"
-                   >
-                     Cancel
-                   </button>
-                   <button 
-                     onClick={handleImportData}
-                     disabled={isImporting || !importText.trim()}
-                     className="px-4 py-2 bg-blue-600 text-white rounded-md font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                   >
-                     {isImporting ? <span className="animate-spin">⏳</span> : <Upload size={16} />}
-                     Parse & Import
-                   </button>
-                </div>
-             </div>
-          </div>
-        </div>
-      )}
+      <ImportModal 
+        isOpen={isImportModalOpen} 
+        onClose={() => setIsImportModalOpen(false)} 
+        onImport={handleImportSubmit} 
+        isImporting={isImporting} 
+      />
     </div>
   );
 };
-
-// ... (Sub-components remain unchanged) ...
-const TemplateOption = ({ id, name, description, isSelected, onSelect, preview }: any) => (
-  <button 
-    onClick={onSelect}
-    className={`relative group flex flex-col items-stretch text-left rounded-xl transition-all duration-200 outline-none
-      ${isSelected 
-        ? 'ring-2 ring-blue-600 shadow-xl scale-[1.02] bg-white' 
-        : 'hover:shadow-lg hover:-translate-y-1 bg-white border border-slate-200'
-      }`}
-  >
-    <div className="h-48 bg-slate-100 rounded-t-xl overflow-hidden border-b border-slate-100 relative">
-       <div className="w-full h-full transform scale-[0.8] origin-center flex items-center justify-center pointer-events-none select-none">
-          {preview}
-       </div>
-       {isSelected && (
-         <div className="absolute top-3 right-3 bg-blue-600 text-white p-1 rounded-full shadow-lg z-10">
-           <Check size={16} />
-         </div>
-       )}
-    </div>
-    <div className="p-5 flex-1 flex flex-col">
-      <h3 className={`font-bold text-lg mb-2 ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
-        {name}
-      </h3>
-      <p className="text-sm text-slate-500 leading-relaxed mb-4 flex-1">
-        {description}
-      </p>
-      <div className={`text-sm font-medium flex items-center gap-1 ${isSelected ? 'text-blue-600' : 'text-slate-400 group-hover:text-blue-600'}`}>
-        {isSelected ? 'Selected' : 'Select Template'} 
-        {!isSelected && <ChevronRight size={14} />}
-      </div>
-    </div>
-  </button>
-);
-
-const ModernPreview = () => (
-  <div className="w-40 h-56 bg-white shadow-sm flex flex-row border border-slate-200 text-[2px]">
-    <div className="w-1/3 bg-slate-800 h-full p-2 flex flex-col gap-2">
-      <div className="w-8 h-8 rounded-full bg-slate-600/50 mx-auto"></div>
-      <div className="w-full h-1 bg-slate-600/50 rounded"></div>
-      <div className="w-full h-1 bg-slate-600/50 rounded"></div>
-      <div className="mt-4 w-full h-1 bg-slate-600/30 rounded"></div>
-      <div className="w-2/3 h-1 bg-slate-600/30 rounded"></div>
-    </div>
-    <div className="w-2/3 h-full p-2 flex flex-col gap-2">
-      <div className="w-1/2 h-2 bg-slate-200 rounded mb-2"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-5/6 h-1 bg-slate-100 rounded"></div>
-      <div className="mt-2 w-1/3 h-1.5 bg-slate-200 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-    </div>
-  </div>
-);
-
-const ClassicPreview = () => (
-  <div className="w-40 h-56 bg-white shadow-sm flex flex-col p-3 items-center border border-slate-200 text-[2px]">
-    <div className="w-1/2 h-2 bg-slate-800 rounded mb-1"></div>
-    <div className="w-3/4 h-1 bg-slate-400 rounded mb-2"></div>
-    <div className="w-full h-px bg-slate-300 mb-3"></div>
-    <div className="w-full flex flex-col gap-1.5 items-start">
-      <div className="w-1/4 h-1.5 bg-slate-300 rounded mb-0.5"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-    </div>
-    <div className="w-full flex flex-col gap-1.5 items-start mt-3">
-      <div className="w-1/4 h-1.5 bg-slate-300 rounded mb-0.5"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-    </div>
-  </div>
-);
-
-const MinimalPreview = () => (
-  <div className="w-40 h-56 bg-white shadow-sm flex flex-col p-4 border border-slate-200 text-[2px]">
-    <div className="w-2/3 h-3 bg-slate-900 rounded mb-1"></div>
-    <div className="w-1/2 h-1 bg-slate-400 rounded mb-4"></div>
-    
-    <div className="w-full flex flex-col gap-1.5 mb-3">
-      <div className="w-1/5 h-1.5 bg-slate-300 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-5/6 h-1 bg-slate-100 rounded"></div>
-    </div>
-    
-    <div className="w-full flex flex-col gap-1.5">
-      <div className="w-1/5 h-1.5 bg-slate-300 rounded"></div>
-      <div className="w-full h-1 bg-slate-100 rounded"></div>
-      <div className="w-5/6 h-1 bg-slate-100 rounded"></div>
-    </div>
-  </div>
-);
-
-const TechPreview = () => (
-  <div className="w-40 h-56 bg-white shadow-sm flex flex-col p-3 border border-slate-200 text-[2px]">
-    <div className="w-full text-center mb-2">
-       <div className="w-1/2 h-2 bg-slate-900 mx-auto rounded"></div>
-       <div className="w-1/3 h-1 bg-slate-400 mx-auto rounded mt-1"></div>
-    </div>
-    
-    <div className="w-full border-t border-slate-200 pt-1 mb-1">
-       <div className="w-1/4 h-1.5 bg-slate-800 mb-1"></div>
-       <div className="flex justify-between mb-0.5">
-          <div className="w-1/3 h-1 bg-slate-700"></div>
-          <div className="w-1/4 h-1 bg-slate-400"></div>
-       </div>
-       <div className="w-full h-0.5 bg-slate-100 mb-0.5"></div>
-       <div className="w-full h-0.5 bg-slate-100 mb-0.5"></div>
-    </div>
-
-     <div className="w-full pt-1 mb-1">
-       <div className="w-1/4 h-1.5 bg-slate-800 mb-1"></div>
-       <div className="flex justify-between mb-0.5">
-          <div className="w-1/3 h-1 bg-slate-700"></div>
-          <div className="w-1/4 h-1 bg-slate-400"></div>
-       </div>
-       <div className="w-full h-0.5 bg-slate-100 mb-0.5"></div>
-    </div>
-  </div>
-);
 
 export default App;

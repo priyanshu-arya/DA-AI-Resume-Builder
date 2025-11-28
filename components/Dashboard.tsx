@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { UserProfile, ResumeProject } from '../types';
-import { Plus, FileText, Trash2, Edit3, LogOut, Search, Clock, MoreVertical, Layout, Upload } from 'lucide-react';
+import { Plus, FileText, Trash2, Edit3, LogOut, Search, Clock, MoreVertical, Layout, Upload, Lightbulb } from 'lucide-react';
 import ResumeScanner from './ResumeScanner';
 
 interface DashboardProps {
@@ -10,6 +10,7 @@ interface DashboardProps {
   onCreateProject: () => void;
   onOpenProject: (project: ResumeProject) => void;
   onDeleteProject: (projectId: string) => void;
+  dailyTip?: string;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -18,7 +19,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   onLogout, 
   onCreateProject, 
   onOpenProject,
-  onDeleteProject 
+  onDeleteProject,
+  dailyTip
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -32,9 +34,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       
       {/* Sidebar */}
       <aside className="w-full md:w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0">
-         <div className="p-6 border-b border-slate-800">
-            <div className="flex items-center gap-3 mb-6">
-               <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg">
+         <div className="p-4 md:p-6 border-b border-slate-800">
+            <div className="flex items-center gap-3 mb-4 md:mb-6">
+               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-base md:text-lg shrink-0">
                   {user.photoURL ? (
                     <img src={user.photoURL} alt="User" className="w-full h-full rounded-full" />
                   ) : (
@@ -42,45 +44,66 @@ const Dashboard: React.FC<DashboardProps> = ({
                   )}
                </div>
                <div className="overflow-hidden">
-                  <h3 className="text-white font-semibold truncate">{user.displayName}</h3>
+                  <h3 className="text-white font-semibold truncate text-sm md:text-base">{user.displayName}</h3>
                   <p className="text-xs text-slate-500 truncate">{user.email}</p>
                </div>
             </div>
             
             <button 
               onClick={onCreateProject}
-              className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-md font-medium transition-colors flex items-center justify-center gap-2 shadow-sm"
+              className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-md font-medium transition-colors flex items-center justify-center gap-2 shadow-sm text-sm"
             >
-               <Plus size={18} /> New Resume
+               <Plus size={18} /> <span>New Resume</span>
             </button>
          </div>
 
-         <nav className="flex-1 p-4 space-y-1">
-            <button className="w-full text-left px-4 py-2 rounded-md bg-slate-800 text-white font-medium flex items-center gap-3">
+         <nav className="flex-1 p-2 md:p-4 space-y-1 flex flex-row md:flex-col overflow-x-auto md:overflow-visible">
+            <button className="flex-1 md:flex-none text-left px-4 py-2 rounded-md bg-slate-800 text-white font-medium flex items-center gap-2 md:gap-3 whitespace-nowrap text-sm md:text-base">
                <Layout size={18} /> All Projects
             </button>
             <button 
               onClick={() => setIsScannerOpen(true)}
-              className="w-full text-left px-4 py-2 rounded-md hover:bg-slate-800/50 transition-colors flex items-center gap-3"
+              className="flex-1 md:flex-none text-left px-4 py-2 rounded-md hover:bg-slate-800/50 transition-colors flex items-center gap-2 md:gap-3 whitespace-nowrap text-sm md:text-base"
             >
-               <Upload size={18} /> Score Uploaded Resume
+               <Upload size={18} /> Know Your Score
             </button>
          </nav>
 
-         <div className="p-4 border-t border-slate-800">
+         <div className="p-4 border-t border-slate-800 hidden md:block">
             <button onClick={onLogout} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm px-4">
                <LogOut size={16} /> Sign Out
+            </button>
+         </div>
+         {/* Mobile Logout (Header style) */}
+         <div className="md:hidden p-2 border-t border-slate-800 flex justify-end">
+            <button onClick={onLogout} className="p-2 text-slate-400 hover:text-white">
+                <LogOut size={20} />
             </button>
          </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-6 md:p-10 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-10 overflow-y-auto">
          
          <div className="max-w-6xl mx-auto">
+            {/* Pro Tip Banner */}
+            {dailyTip && (
+               <div className="mb-6 md:mb-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-4 text-white shadow-lg flex items-start md:items-center gap-4 animate-in fade-in slide-in-from-top-4">
+                  <div className="bg-white/20 p-2 rounded-lg shrink-0 hidden sm:block">
+                     <Lightbulb size={24} className="text-yellow-300" />
+                  </div>
+                  <div>
+                     <h4 className="font-bold text-xs md:text-sm uppercase tracking-wider opacity-80 mb-1 flex items-center gap-2">
+                        <span className="sm:hidden"><Lightbulb size={12} className="text-yellow-300 inline" /></span> Resume Tip
+                     </h4>
+                     <p className="font-medium text-sm md:text-base leading-relaxed">{dailyTip}</p>
+                  </div>
+               </div>
+            )}
+
             {/* Top Bar */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-               <h1 className="text-2xl font-bold text-slate-800">All Projects</h1>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+               <h1 className="text-xl md:text-2xl font-bold text-slate-800">All Projects</h1>
                <div className="relative w-full md:w-80">
                   <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
@@ -123,11 +146,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                            <div className="hidden md:block col-span-3 text-sm text-slate-500">
                               You
                            </div>
-                           <div className="col-span-4 md:col-span-3 flex items-center justify-end gap-4">
-                              <span className="text-sm text-slate-500 hidden sm:block">
+                           <div className="col-span-4 md:col-span-3 flex items-center justify-end gap-2 md:gap-4">
+                              <span className="text-xs md:text-sm text-slate-500 hidden sm:block">
                                  {new Date(project.lastModified).toLocaleDateString()}
                               </span>
-                              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex gap-1 md:gap-2 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                                  <button 
                                    onClick={() => onOpenProject(project)}
                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"

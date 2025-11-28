@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ResumeData, Experience, Education, Project, Certificate, Award, KeywordAnalysis, ResumeImprovement, ReviewResult } from '../types';
-import { Plus, Trash2, ChevronDown, ChevronUp, Sparkles, PenTool, Target, AlertCircle, CheckCircle, ArrowRight, Lightbulb, Wand2, Upload, Save } from 'lucide-react';
+import { ResumeData, Experience, Education, Project, Certificate, Award, KeywordAnalysis, ResumeImprovement, ReviewResult, ResumeVersion } from '../types';
+import { Plus, Trash2, ChevronDown, ChevronUp, Sparkles, PenTool, Target, AlertCircle, CheckCircle, ArrowRight, Lightbulb, Wand2, Upload, Save, History, Clock, RotateCcw, X, Link as LinkIcon } from 'lucide-react';
 
 interface EditorProps {
   data: ResumeData;
@@ -20,10 +20,13 @@ interface EditorProps {
   isGeneratingSummary: boolean;
   isReviewing: boolean;
   enhancingId: string | null;
-  // New props for Import/Save
   onOpenImport: () => void;
   onSaveProfile: () => void;
   isSavingProfile: boolean;
+  onImportData?: (source: { type: 'text' | 'pdf' | 'url', value: string }) => Promise<void>;
+  versions?: ResumeVersion[];
+  onRestoreVersion?: (version: ResumeVersion) => void;
+  previousScore?: number;
 }
 
 const Editor: React.FC<EditorProps> = ({ 
@@ -46,11 +49,17 @@ const Editor: React.FC<EditorProps> = ({
   enhancingId,
   onOpenImport,
   onSaveProfile,
-  isSavingProfile
+  isSavingProfile,
+  onImportData,
+  versions,
+  onRestoreVersion,
+  previousScore
 }) => {
   const [activeTab, setActiveTab] = useState<'editor' | 'review' | 'jd'>('editor');
   const [activeSection, setActiveSection] = useState<string | null>('personal');
-
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  
   const updatePersonalInfo = (field: string, value: string) => {
     onChange({
       ...data,
@@ -88,6 +97,34 @@ const Editor: React.FC<EditorProps> = ({
     setActiveSection(activeSection === section ? null : section);
   };
 
+  // Robust URL validation that handles various formats
+  const validateUrl = (value: string) => {
+    if (!value) return true;
+    try {
+      // Check for basic structure first
+      if (!value.includes('.')) return false;
+      
+      const urlToCheck = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+      new URL(urlToCheck);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleProjectLinkChange = (id: string, value: string) => {
+    updateItem<Project>('projects', id, 'link', value);
+    if (!validateUrl(value)) {
+      setValidationErrors(prev => ({ ...prev, [`proj-link-${id}`]: 'Please enter a valid URL (e.g. github.com/username)' }));
+    } else {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[`proj-link-${id}`];
+        return newErrors;
+      });
+    }
+  };
+
   const SectionHeader = ({ title, name }: { title: string, name: string }) => (
     <button
       onClick={() => toggleSection(name)}
@@ -99,7 +136,7 @@ const Editor: React.FC<EditorProps> = ({
   );
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 border-r border-slate-200">
+    <div className="flex flex-col h-full bg-slate-100 border-r border-slate-200 relative">
       
       {/* Tabs */}
       <div className="flex border-b border-slate-200 bg-white">
@@ -107,19 +144,19 @@ const Editor: React.FC<EditorProps> = ({
           onClick={() => setActiveTab('editor')}
           className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'editor' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
         >
-          <PenTool size={16} /> Edit
+          <PenTool size={16} /> <span className="hidden sm:inline">Edit</span>
         </button>
         <button 
           onClick={() => setActiveTab('review')}
           className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'review' ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
         >
-          <Lightbulb size={16} /> Review
+          <Lightbulb size={16} /> <span className="hidden sm:inline">Review</span>
         </button>
         <button 
           onClick={() => setActiveTab('jd')}
           className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'jd' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
         >
-          <Target size={16} /> Analyze with JD
+          <Target size={16} /> <span className="hidden sm:inline">Tailor</span>
         </button>
       </div>
 
@@ -128,13 +165,13 @@ const Editor: React.FC<EditorProps> = ({
           <div className="flex flex-col">
             
             {/* Quick Actions Toolbar */}
-            <div className="p-3 bg-white border-b border-slate-200 flex gap-2 overflow-x-auto">
+            <div className="p-3 bg-white border-b border-slate-200 flex gap-2 overflow-x-auto items-center no-scrollbar">
                <button 
                  onClick={onOpenImport}
                  className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-xs font-medium transition-colors whitespace-nowrap"
-                 title="Import from LinkedIn or Text"
+                 title="Import from LinkedIn or PDF"
                >
-                 <Upload size={14} /> Import Data
+                 <Upload size={14} /> Import
                </button>
                <button 
                  onClick={onSaveProfile}
@@ -145,6 +182,18 @@ const Editor: React.FC<EditorProps> = ({
                  {isSavingProfile ? <span className="animate-spin">⏳</span> : <Save size={14} />} 
                  Save to Profile
                </button>
+               
+               <div className="flex-1"></div>
+               
+               {versions && versions.length > 0 && (
+                 <button 
+                   onClick={() => setIsHistoryOpen(true)}
+                   className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-xs font-medium transition-colors whitespace-nowrap"
+                   title="Version History"
+                 >
+                   <History size={14} /> <span className="hidden sm:inline">History</span>
+                 </button>
+               )}
             </div>
 
             {/* Personal Info */}
@@ -211,7 +260,7 @@ const Editor: React.FC<EditorProps> = ({
                     <div key={exp.id} className="p-4 border rounded-lg bg-slate-50 relative group">
                       <button 
                         onClick={() => removeItem('experience', exp.id)} 
-                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
                         title="Delete Experience"
                       >
                         <Trash2 size={18} />
@@ -289,7 +338,7 @@ const Editor: React.FC<EditorProps> = ({
                     <div key={edu.id} className="p-4 border rounded-lg bg-slate-50 relative group">
                       <button 
                         onClick={() => removeItem('education', edu.id)} 
-                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -299,7 +348,6 @@ const Editor: React.FC<EditorProps> = ({
                         <Input label="Start Date" value={edu.startDate} onChange={(v: string) => updateItem<Education>('education', edu.id, 'startDate', v)} />
                         <Input label="End Date" value={edu.endDate} onChange={(v: string) => updateItem<Education>('education', edu.id, 'endDate', v)} />
                         <Input label="Location" value={edu.location} onChange={(v: string) => updateItem<Education>('education', edu.id, 'location', v)} />
-                        {/* New Optional Fields */}
                         <Input label="GPA (Optional)" value={edu.gpa || ''} onChange={(v: string) => updateItem<Education>('education', edu.id, 'gpa', v)} placeholder="e.g. 3.8/4.0" />
                         <Input label="CGPA (Optional)" value={edu.cgpa || ''} onChange={(v: string) => updateItem<Education>('education', edu.id, 'cgpa', v)} placeholder="e.g. 9.5/10" />
                         <Input label="Coursework (Optional)" value={edu.coursework || ''} onChange={(v: string) => updateItem<Education>('education', edu.id, 'coursework', v)} className="md:col-span-2" placeholder="e.g. Data Structures, Algorithms..." />
@@ -327,13 +375,19 @@ const Editor: React.FC<EditorProps> = ({
                     <div key={proj.id} className="p-4 border rounded-lg bg-slate-50 relative group">
                       <button 
                         onClick={() => removeItem('projects', proj.id)} 
-                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 size={18} />
                       </button>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                         <Input label="Project Name" value={proj.name} onChange={(v: string) => updateItem<Project>('projects', proj.id, 'name', v)} />
-                        <Input label="Link" value={proj.link} onChange={(v: string) => updateItem<Project>('projects', proj.id, 'link', v)} placeholder="e.g. github.com/username/project" />
+                        <Input 
+                          label="Link" 
+                          value={proj.link} 
+                          onChange={(v: string) => handleProjectLinkChange(proj.id, v)} 
+                          placeholder="e.g. github.com/username/project" 
+                          error={validationErrors[`proj-link-${proj.id}`]}
+                        />
                         <Input label="Date (Timeline)" value={proj.date || ''} onChange={(v: string) => updateItem<Project>('projects', proj.id, 'date', v)} placeholder="e.g. Jan 2023 - Mar 2023" />
                         <Input label="Technologies" value={proj.technologies} onChange={(v: string) => updateItem<Project>('projects', proj.id, 'technologies', v)} className="md:col-span-1" placeholder="React, Node.js..." />
                       </div>
@@ -377,7 +431,7 @@ const Editor: React.FC<EditorProps> = ({
                     <div key={award.id} className="p-4 border rounded-lg bg-slate-50 relative group">
                       <button 
                         onClick={() => removeItem('awards', award.id)} 
-                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -403,7 +457,7 @@ const Editor: React.FC<EditorProps> = ({
                             ) : (
                               <Sparkles size={12} />
                             )}
-                            Enhance
+                            Enhance with AI
                           </button>
                       </div>
                     </div>
@@ -424,7 +478,7 @@ const Editor: React.FC<EditorProps> = ({
                     <div key={cert.id} className="p-4 border rounded-lg bg-slate-50 relative group">
                       <button 
                         onClick={() => removeItem('certificates', cert.id)} 
-                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -449,7 +503,7 @@ const Editor: React.FC<EditorProps> = ({
           <div className="p-4 space-y-6">
             <div className="bg-purple-50 border border-purple-100 rounded-lg p-4">
                <h3 className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
-                 <Wand2 size={18} /> AI Coach
+                 <Wand2 size={18} /> Professional Resume Review
                </h3>
                <p className="text-sm text-purple-800 mb-4">
                  Get actionable suggestions to improve your resume's impact, clarity, and SEO ranking.
@@ -466,24 +520,46 @@ const Editor: React.FC<EditorProps> = ({
 
             {reviewResult && (
                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-                 <div className="flex items-center gap-4 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                    <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
-                        <svg className="w-full h-full transform -rotate-90">
-                           <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-slate-100" />
-                           <circle 
-                             cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="6" fill="transparent" 
-                             className={reviewResult.score >= 80 ? "text-green-500" : reviewResult.score >= 50 ? "text-yellow-500" : "text-red-500"}
-                             strokeDasharray={175.9}
-                             strokeDashoffset={175.9 - (175.9 * reviewResult.score) / 100}
-                             strokeLinecap="round"
-                           />
-                        </svg>
-                        <span className="absolute text-sm font-bold text-slate-800">{reviewResult.score}</span>
+                 <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                    <div className="flex items-center gap-4">
+                      <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                          <svg className="w-full h-full transform -rotate-90">
+                            <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-slate-100" />
+                            <circle 
+                              cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="6" fill="transparent" 
+                              className={reviewResult.score >= 80 ? "text-green-500" : reviewResult.score >= 50 ? "text-yellow-500" : "text-red-500"}
+                              strokeDasharray={175.9}
+                              strokeDashoffset={175.9 - (175.9 * reviewResult.score) / 100}
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                          <span className="absolute text-sm font-bold text-slate-800">{reviewResult.score}</span>
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-800">Resume Score</h4>
+                        <p className="text-xs text-slate-500">{reviewResult.summary}</p>
+                      </div>
                     </div>
-                    <div>
-                       <h4 className="font-bold text-slate-800">Resume Score</h4>
-                       <p className="text-xs text-slate-500">{reviewResult.summary}</p>
-                    </div>
+
+                    {/* Score Comparison */}
+                    {previousScore !== undefined && (
+                      <div className="flex flex-col items-end text-xs font-medium">
+                        <span className="text-slate-400 mb-1">vs Last Score: {previousScore}</span>
+                        {reviewResult.score > previousScore ? (
+                          <span className="text-green-600 flex items-center bg-green-50 px-2 py-0.5 rounded-full">
+                            ▲ +{reviewResult.score - previousScore}
+                          </span>
+                        ) : reviewResult.score < previousScore ? (
+                          <span className="text-red-600 flex items-center bg-red-50 px-2 py-0.5 rounded-full">
+                             ▼ {reviewResult.score - previousScore}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                            = No Change
+                          </span>
+                        )}
+                      </div>
+                    )}
                  </div>
 
                  {reviewResult.improvements.length === 0 ? (
@@ -621,12 +697,72 @@ const Editor: React.FC<EditorProps> = ({
           </div>
         )}
       </div>
+
+      {/* Version History Modal */}
+      {isHistoryOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex justify-end" onClick={() => setIsHistoryOpen(false)}>
+           <div className="w-full sm:w-80 bg-white h-full shadow-2xl p-4 flex flex-col animate-in slide-in-from-right" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-4 pb-4 border-b">
+                 <h3 className="font-bold text-slate-800 flex items-center gap-2"><Clock size={18} /> Version History</h3>
+                 <button onClick={() => setIsHistoryOpen(false)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-600"><X size={20} /></button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto space-y-3">
+                 {!versions || versions.length === 0 ? (
+                    <div className="text-center text-slate-400 py-10 text-sm">
+                       No history available yet. <br/> Save your resume to create versions.
+                    </div>
+                 ) : (
+                    versions.map((version) => (
+                       <div key={version.id} className="p-3 border rounded-lg hover:bg-slate-50 transition-colors group">
+                          <div className="flex justify-between items-start mb-1">
+                             <span className="font-medium text-slate-800 text-sm">{version.note || 'Auto-save'}</span>
+                             <span className="text-xs text-slate-400">{new Date(version.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                          </div>
+                          <div className="text-xs text-slate-500 mb-2">
+                             {new Date(version.timestamp).toLocaleDateString()}
+                          </div>
+                          {onRestoreVersion && (
+                            <button 
+                              onClick={() => { onRestoreVersion(version); setIsHistoryOpen(false); }}
+                              className="w-full py-1.5 text-xs bg-white border border-blue-200 text-blue-600 rounded hover:bg-blue-50 flex items-center justify-center gap-1 font-medium"
+                            >
+                               <RotateCcw size={12} /> Restore this version
+                            </button>
+                          )}
+                       </div>
+                    ))
+                 )}
+              </div>
+
+              {/* Explicit Close Button for Mobile/Ease of Use */}
+              <div className="pt-4 border-t mt-2">
+                 <button 
+                   onClick={() => setIsHistoryOpen(false)}
+                   className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                 >
+                   Close History
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
     </div>
   );
 };
 
-// ... (UI Helpers remain unchanged) ...
-const Input = ({ label, value, onChange, className = '', placeholder = '' }: any) => (
+// Properly typed Input component to avoid implicit any errors
+interface InputProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+  placeholder?: string;
+  error?: string;
+}
+
+const Input: React.FC<InputProps> = ({ label, value, onChange, className = '', placeholder = '', error }) => (
   <div className={`flex flex-col ${className}`}>
     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{label}</label>
     <input 
@@ -634,8 +770,9 @@ const Input = ({ label, value, onChange, className = '', placeholder = '' }: any
       value={value} 
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+      className={`px-3 py-2 border rounded-md focus:outline-none focus:ring-2 text-sm ${error ? 'border-red-500 focus:ring-red-200' : 'border-slate-300 focus:ring-blue-500'}`}
     />
+    {error && <span className="text-xs text-red-500 mt-1">{error}</span>}
   </div>
 );
 

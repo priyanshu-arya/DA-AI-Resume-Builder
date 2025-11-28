@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from '../firebaseConfig';
-import { Sparkles, FileText, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { signInWithPopup, Auth, AuthProvider } from 'firebase/auth';
+import { auth, googleProvider, linkedinProvider } from '../firebaseConfig';
+import { Sparkles, FileText, CheckCircle, AlertTriangle, XCircle, User, Linkedin } from 'lucide-react';
+import { UserProfile } from '../types';
 
 interface LoginProps {
-  onLoginSuccess: (user: any) => void;
+  onLoginSuccess: (user: UserProfile) => void;
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState<string | null>(null);
   
   // Check if config is likely default/invalid
-  const isConfigValid = auth && auth.app.options.apiKey && auth.app.options.apiKey !== "YOUR_API_KEY_HERE";
+  // We cast auth to any to safely check internal options without TS errors if auth is null
+  const isConfigValid = auth && (auth as any).app?.options?.apiKey && (auth as any).app.options.apiKey !== "YOUR_API_KEY_HERE";
 
   const handleGoogleLogin = async () => {
     setError(null);
@@ -20,14 +22,20 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       return;
     }
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      onLoginSuccess(result.user);
+      const result = await signInWithPopup(auth as Auth, googleProvider as AuthProvider);
+      onLoginSuccess({
+        uid: result.user.uid,
+        displayName: result.user.displayName,
+        email: result.user.email,
+        photoURL: result.user.photoURL
+      });
     } catch (err: any) {
       console.error("Login failed", err);
       // Format the error message to be helpful
       let errorMessage = err.message;
       if (err.code === 'auth/unauthorized-domain') {
-        errorMessage = "Domain not authorized. Go to Firebase Console -> Authentication -> Settings -> Authorized Domains and add 'localhost' or your current domain.";
+        const hostname = window.location.hostname;
+        errorMessage = `Domain not authorized: '${hostname}'. Go to Firebase Console -> Authentication -> Settings -> Authorized Domains and add '${hostname}'. Also ensure you are editing the correct project 'da-ai-resume-builder'.`;
       } else if (err.code === 'auth/operation-not-allowed') {
         errorMessage = "Google Sign-In is disabled. Go to Firebase Console -> Authentication -> Sign-in method and enable 'Google'.";
       } else if (err.code === 'auth/popup-closed-by-user') {
@@ -35,6 +43,43 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       }
       setError(errorMessage);
     }
+  };
+
+  const handleLinkedInLogin = async () => {
+    setError(null);
+    if (!auth || !isConfigValid || !linkedinProvider) {
+      setError("Firebase or LinkedIn provider is not configured.");
+      return;
+    }
+    try {
+      // Cast to strict types for TypeScript compliance
+      const result = await signInWithPopup(auth as Auth, linkedinProvider as AuthProvider);
+      onLoginSuccess({
+        uid: result.user.uid,
+        displayName: result.user.displayName,
+        email: result.user.email,
+        photoURL: result.user.photoURL
+      });
+    } catch (err: any) {
+      console.error("LinkedIn Login failed", err);
+      let errorMessage = err.message;
+      if (err.code === 'auth/operation-not-allowed') {
+        errorMessage = "LinkedIn Sign-In is disabled. Enable 'LinkedIn' in Firebase Console -> Authentication -> Sign-in method.";
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        errorMessage = "Sign-in cancelled.";
+      }
+      setError(errorMessage);
+    }
+  };
+
+  const handleGuestLogin = () => {
+    onLoginSuccess({
+      uid: 'guest-' + Math.random().toString(36).substr(2, 9),
+      displayName: 'Guest User',
+      email: 'guest@example.com',
+      photoURL: null,
+      isGuest: true
+    });
   };
 
   return (
@@ -96,18 +141,33 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
             Sign in with Google
           </button>
-          
+
           <button 
-            className="w-full bg-[#0077b5] text-white font-semibold py-3 px-6 rounded-lg hover:bg-[#006399] transition-colors flex items-center justify-center gap-3 shadow-md opacity-70 cursor-not-allowed"
-            title="Linkedin Auth requires backend setup, unavailable in demo"
+            onClick={handleLinkedInLogin}
+            disabled={!isConfigValid}
+            className="w-full bg-[#0077b5] text-white font-semibold py-3 px-6 rounded-lg hover:bg-[#006396] transition-colors flex items-center justify-center gap-3 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+            <Linkedin size={20} />
             Sign in with LinkedIn
+          </button>
+          
+          <div className="relative flex py-2 items-center">
+             <div className="flex-grow border-t border-slate-700"></div>
+             <span className="flex-shrink-0 mx-4 text-slate-500 text-xs uppercase tracking-wider">Or</span>
+             <div className="flex-grow border-t border-slate-700"></div>
+          </div>
+
+          <button 
+            onClick={handleGuestLogin}
+            className="w-full bg-slate-800 text-slate-300 font-semibold py-3 px-6 rounded-lg hover:bg-slate-700 hover:text-white transition-colors flex items-center justify-center gap-3 shadow-md border border-slate-700"
+          >
+            <User size={20} />
+            Continue as Guest
           </button>
         </div>
         
         <p className="mt-6 text-xs text-slate-500">
-          By signing in, you agree to our Terms of Service and Privacy Policy.
+          Guest data is saved to your browser only. Sign in to sync across devices.
         </p>
       </div>
     </div>

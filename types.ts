@@ -94,12 +94,26 @@ export interface ReviewResult {
   improvements: ResumeImprovement[];
 }
 
+// History Types
+export interface ResumeVersion {
+  id: string;
+  timestamp: number;
+  data: ResumeData;
+  note?: string;
+}
+
+export interface ScoreRecord {
+  timestamp: number;
+  score: number;
+}
+
 // Auth and Project Types
 export interface UserProfile {
   uid: string;
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
+  isGuest?: boolean;
 }
 
 export interface ResumeProject {
@@ -109,4 +123,6 @@ export interface ResumeProject {
   lastModified: number; // Timestamp
   data: ResumeData;
   template: TemplateType;
+  versions?: ResumeVersion[];
+  scoreHistory?: ScoreRecord[];
 }
