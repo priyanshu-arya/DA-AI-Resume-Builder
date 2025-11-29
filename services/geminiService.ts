@@ -2,11 +2,16 @@ import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { ResumeData, KeywordAnalysis, ReviewResult } from "../types";
 
 // Lazy initialization to prevent crash on load if API key is missing
+// We check for various invalid states including empty strings and placeholder values
 const getAiClient = () => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey || apiKey.includes('paste_your_google') || apiKey === 'YOUR_API_KEY_HERE') {
-    throw new Error("Gemini API Key is missing or invalid. Please check your .env file.");
+  
+  // Strict validation before attempting to create the client
+  if (!apiKey || apiKey.trim() === '' || apiKey.includes('paste_your_google') || apiKey === 'YOUR_API_KEY_HERE') {
+    console.error("Gemini API Key is invalid or missing:", apiKey);
+    throw new Error("Gemini API Key is missing or invalid. Please check your .env file and restart the development server.");
   }
+  
   return new GoogleGenAI({ apiKey });
 };
 
@@ -371,7 +376,6 @@ export const extractDataFromSource = async (
     config.responseMimeType = "application/json";
     config.responseSchema = resumeSchema;
   } else if (source.type === 'url') {
-    // LinkedIn Extraction Strategy
     const urlPrompt = `
       I need to construct a resume from the public LinkedIn profile at this URL: ${source.value}.
       
@@ -391,7 +395,6 @@ export const extractDataFromSource = async (
     contents = [{ text: urlPrompt }];
     tools = [{ googleSearch: {} }];
     config.tools = tools;
-    // CRITICAL: responseMimeType cannot be used with googleSearch
     delete config.responseMimeType;
     delete config.responseSchema;
   } else {
@@ -408,12 +411,9 @@ export const extractDataFromSource = async (
   });
 
   if (response.text) {
-    // Use robust cleaner
     const jsonStr = cleanJsonString(response.text);
-    
     try {
       const data = JSON.parse(jsonStr) as ResumeData;
-      // Ensure arrays exist
       data.skills = data.skills || [];
       data.experience = data.experience || [];
       data.education = data.education || [];
@@ -421,7 +421,6 @@ export const extractDataFromSource = async (
       data.awards = data.awards || [];
       data.certificates = data.certificates || [];
       
-      // Ensure Personal Info exists
       data.personalInfo = {
         fullName: "",
         email: "",
@@ -433,7 +432,6 @@ export const extractDataFromSource = async (
         ...(data.personalInfo || {})
       };
       
-      // Add IDs if missing
       const addId = (item: any) => item.id = item.id || Math.random().toString(36).substr(2, 9);
       data.experience.forEach(addId);
       data.education.forEach(addId);

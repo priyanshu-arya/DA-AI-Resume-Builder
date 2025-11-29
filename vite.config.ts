@@ -8,7 +8,8 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     define: {
       // Polyfill process.env.API_KEY for the Gemini Service
-      'process.env.API_KEY': JSON.stringify(env.API_KEY || process.env.API_KEY)
+      // Use empty string default to prevent "undefined" stringification issues
+      'process.env.API_KEY': JSON.stringify(env.API_KEY || process.env.API_KEY || '')
     },
     build: {
       outDir: 'dist',
