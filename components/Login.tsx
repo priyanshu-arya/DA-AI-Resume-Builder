@@ -26,7 +26,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       setDomainError(hostname);
       errorMessage = `Domain not authorized.`;
     } else if (err.code === 'auth/operation-not-allowed') {
-      errorMessage = "Sign-In provider is disabled. Enable it in Firebase Console -> Authentication -> Sign-in method.";
+      errorMessage = "Sign-In provider is disabled. Enable it in Firebase Console -> Authentication -> Sign-in method. Ensure you clicked 'Save' after entering Client ID/Secret.";
     } else if (err.code === 'auth/popup-closed-by-user') {
       errorMessage = "Sign-in cancelled.";
     } else if (err.code === 'auth/account-exists-with-different-credential') {
@@ -140,9 +140,17 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
              <div className="flex items-center gap-2 text-red-400 font-bold mb-1">
                 <XCircle size={18} /> Login Error
              </div>
-             <p className="text-xs text-red-200 leading-relaxed">
+             <p className="text-xs text-red-200 leading-relaxed mb-2">
                {error}
              </p>
+             {error.includes("provider is disabled") && (
+                <div className="text-[10px] text-slate-300 bg-black/20 p-2 rounded">
+                   <strong>Tip:</strong> In LinkedIn Developers, ensure "Redirect URLs" includes:
+                   <div className="mt-1 font-mono break-all select-all bg-black/30 p-1 rounded">
+                      https://{(auth as any)?.app?.options?.projectId || 'YOUR_PROJECT_ID'}.firebaseapp.com/__/auth/handler
+                   </div>
+                </div>
+             )}
            </div>
         )}
 
@@ -189,6 +197,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         <p className="mt-6 text-xs text-slate-500">
           Guest data is saved to your browser only. Sign in to sync across devices.
         </p>
+
+        {/* Project Debug Info (Helpful for checking if config matches console) */}
+        <div className="mt-8 pt-4 border-t border-slate-700 text-xs text-slate-500 font-mono">
+           Project ID: <span className="text-slate-400">{(auth as any)?.app?.options?.projectId || 'Not Configured'}</span>
+        </div>
       </div>
     </div>
   );

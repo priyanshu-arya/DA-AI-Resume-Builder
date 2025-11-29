@@ -1,4 +1,4 @@
-import { initializeApp, FirebaseApp } from "firebase/app";
+import * as firebaseApp from "firebase/app";
 import { getAuth, GoogleAuthProvider, OAuthProvider, Auth, AuthProvider } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
@@ -15,14 +15,16 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase variables with explicit types
-let app: FirebaseApp | undefined;
+// Using 'any' for app to avoid 'FirebaseApp' import errors
+let app: any | undefined;
 let auth: Auth | undefined;
 let db: Firestore | undefined;
 let googleProvider: AuthProvider | undefined;
 let linkedinProvider: AuthProvider | undefined;
 
 try {
-    app = initializeApp(firebaseConfig);
+    // Access initializeApp from the namespace object to resolve import errors
+    app = firebaseApp.initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
     googleProvider = new GoogleAuthProvider();

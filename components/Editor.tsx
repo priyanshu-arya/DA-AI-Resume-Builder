@@ -59,12 +59,57 @@ const Editor: React.FC<EditorProps> = ({
   const [activeSection, setActiveSection] = useState<string | null>('personal');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Robust URL validation that handles various formats
+  const validateUrl = (value: string) => {
+    if (!value) return true;
+    try {
+      // Check for basic structure first
+      if (!value.includes('.')) return false;
+      
+      const urlToCheck = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+      new URL(urlToCheck);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   
   const updatePersonalInfo = (field: string, value: string) => {
     onChange({
       ...data,
       personalInfo: { ...data.personalInfo, [field]: value }
     });
+
+    // Validate LinkedIn
+    if (field === 'linkedin') {
+      const isValidFormat = validateUrl(value);
+      // Strictly check for linkedin.com to be ATS friendly
+      const hasDomain = value.toLowerCase().includes('linkedin.com');
+      
+      if (value && (!isValidFormat || !hasDomain)) {
+        setValidationErrors(prev => ({ ...prev, 'personal-linkedin': 'Please enter a valid LinkedIn URL (e.g. linkedin.com/in/name)' }));
+      } else {
+        setValidationErrors(prev => {
+          const newErr = { ...prev };
+          delete newErr['personal-linkedin'];
+          return newErr;
+        });
+      }
+    }
+
+    // Validate Website
+    if (field === 'website') {
+      if (value && !validateUrl(value)) {
+        setValidationErrors(prev => ({ ...prev, 'personal-website': 'Please enter a valid URL' }));
+      } else {
+        setValidationErrors(prev => {
+          const newErr = { ...prev };
+          delete newErr['personal-website'];
+          return newErr;
+        });
+      }
+    }
   };
 
   const updateSkills = (value: string) => {
@@ -95,21 +140,6 @@ const Editor: React.FC<EditorProps> = ({
 
   const toggleSection = (section: string) => {
     setActiveSection(activeSection === section ? null : section);
-  };
-
-  // Robust URL validation that handles various formats
-  const validateUrl = (value: string) => {
-    if (!value) return true;
-    try {
-      // Check for basic structure first
-      if (!value.includes('.')) return false;
-      
-      const urlToCheck = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-      new URL(urlToCheck);
-      return true;
-    } catch {
-      return false;
-    }
   };
 
   const handleProjectLinkChange = (id: string, value: string) => {
@@ -206,8 +236,20 @@ const Editor: React.FC<EditorProps> = ({
                     <Input label="Email" value={data.personalInfo.email} onChange={(v: string) => updatePersonalInfo('email', v)} />
                     <Input label="Phone" value={data.personalInfo.phone} onChange={(v: string) => updatePersonalInfo('phone', v)} />
                     <Input label="Location" value={data.personalInfo.location} onChange={(v: string) => updatePersonalInfo('location', v)} />
-                    <Input label="LinkedIn" value={data.personalInfo.linkedin} onChange={(v: string) => updatePersonalInfo('linkedin', v)} />
-                    <Input label="Website" value={data.personalInfo.website} onChange={(v: string) => updatePersonalInfo('website', v)} />
+                    <Input 
+                      label="LinkedIn" 
+                      value={data.personalInfo.linkedin} 
+                      onChange={(v: string) => updatePersonalInfo('linkedin', v)} 
+                      error={validationErrors['personal-linkedin']}
+                      placeholder="linkedin.com/in/username"
+                    />
+                    <Input 
+                      label="Website" 
+                      value={data.personalInfo.website} 
+                      onChange={(v: string) => updatePersonalInfo('website', v)} 
+                      error={validationErrors['personal-website']}
+                      placeholder="yourname.com"
+                    />
                   </div>
                   
                   <div className="relative">
