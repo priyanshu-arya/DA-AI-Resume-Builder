@@ -1,20 +1,40 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# ATS Resume Builder AI
 
-# Run and deploy your AI Studio app
+An intelligent resume builder that uses Google Gemini AI to tailor your resume for Job Descriptions and ATS optimization.
 
-This contains everything you need to run your app locally.
+## Prerequisites
 
-View your app in AI Studio: https://ai.studio/apps/drive/195CTQrrADsXenZp273a8vgWnpK5f9mB5
+- [Node.js](https://nodejs.org/) (Version 18 or higher recommended)
 
-## Run Locally
+## Quick Start (Local Development)
 
-**Prerequisites:**  Node.js
+1.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
 
+2.  **Environment Setup**
+    Create a file named `.env` in the root directory and add your Gemini API Key:
+    ```env
+    API_KEY=your_gemini_api_key_here
+    ```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+3.  **Firebase Configuration (Optional)**
+    To enable Google/LinkedIn login and cloud storage, update `firebaseConfig.ts` with your own Firebase project credentials.
+    *   If skipped, you can still use **Guest Mode**, which saves data to your browser's LocalStorage.
+
+4.  **Run the App**
+    ```bash
+    npm run dev
+    ```
+    Open your browser to `http://localhost:5173`.
+
+## Building for Production
+
+To create a production build:
+
+```bash
+npm run build
+```
+
+The output will be in the `dist` folder, which can be deployed to any static host (Vercel, Netlify, Firebase Hosting, etc.).
