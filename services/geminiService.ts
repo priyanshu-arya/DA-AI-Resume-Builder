@@ -1,7 +1,14 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { ResumeData, KeywordAnalysis, ReviewResult } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization to prevent crash on load if API key is missing
+const getAiClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey || apiKey.includes('paste_your_google') || apiKey === 'YOUR_API_KEY_HERE') {
+    throw new Error("Gemini API Key is missing or invalid. Please check your .env file.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 const reviewSchema: Schema = {
   type: Type.OBJECT,
@@ -166,6 +173,7 @@ export const optimizeResumeWithJD = async (
   `;
 
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
@@ -199,6 +207,7 @@ export const generateProfessionalSummary = async (
     Exp: ${JSON.stringify(currentResume.experience.slice(0, 1))}
   `;
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: prompt,
@@ -221,6 +230,7 @@ export const refineSectionDescription = async (
     Return ONLY the refined text.
   `;
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: prompt,
@@ -240,6 +250,7 @@ export const analyzeResumeKeywords = async (
     JD: ${jobDescription}
   `;
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: prompt,
@@ -276,6 +287,7 @@ export const getResumeImprovements = async (
     ${jobDescription ? `Job Description:\n${jobDescription}` : ''}
   `;
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: prompt,
@@ -311,6 +323,7 @@ export const scanResumeContent = async (
     contents = [{ text: `Act as a strict Resume Auditor. Review the provided raw resume text. 1. Calculate a Score (0-100). 2. Provide a 1-sentence summary. 3. List 3-5 critical improvements.\n\nText:\n${input.value.slice(0, 20000)}` }];
   }
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: contents,
@@ -387,6 +400,7 @@ export const extractDataFromSource = async (
     config.responseSchema = resumeSchema;
   }
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: contents,
